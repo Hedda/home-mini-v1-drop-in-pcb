@@ -11,20 +11,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Install ESPHome
         run: |
-          pip install esphome
+          pip install esphome==2026.7.0
 
       - name: Build Factory Firmware
         run: |
           esphome compile esphome/micimike-factory.yml
+          mkdir -p release
+          cp esphome/.esphome/build/micimike/build/firmware.factory.bin release/micimike-factory.bin
           
       - name: Build Full Firmware
         run: |
@@ -32,38 +34,43 @@ jobs:
 
       - name: Prepare Release Files
         run: |
-          mkdir -p release
-          # Factory firmware
-          cp esphome/.esphome/build/micimike/.pioenvs/micimike/firmware.factory.bin release/micimike-factory.bin
           # Full firmware (from full build)
           # Note: This assumes micimike-voice.yml uses the same name
-          cp esphome/.esphome/build/micimike/.pioenvs/micimike/firmware.ota.bin release/micimike-voice.bin
+          cp esphome/.esphome/build/micimike/build/firmware.ota.bin release/micimike-voice.bin
+          cp esphome/.esphome/build/micimike/build/firmware.ota.bin release/micimike-voice-beta.bin
           # Manifests
           cp manifests/manifest.json release/
           cp manifests/manifest-beta.json release/
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             release/micimike-factory.bin
             release/micimike-voice.bin
+            release/micimike-voice-beta.bin
             release/manifest.json
             release/manifest-beta.json
           body: |
-            ## MiciMike Firmware Release
-            
+            ## MiciMike Firmware v0.9.8.2
+
+            ### Changes
+            - Fixed factory dashboard import to pull the full voice firmware config on Home Assistant takeover, instead of a short wrapper pointing back to the factory config
+            - Timer LED mute indicator now shows microphone mute and speaker mute on separate LED pairs (1st/3rd for mic, 2nd/4th for speaker) instead of a single shared LED
+            - Updated GitHub Actions to Node.js 24-compatible versions (actions/checkout@v7, actions/setup-python@v7, softprops/action-gh-release@v3)
+            - Updated factory firmware and release manifests to v0.9.8.2
+
             ### Factory Firmware
             - Initial setup firmware with BLE Improv
             - Flash via USB first time only
-            
+
             ### Full Firmware
             - Complete voice assistant functionality
-            - Auto-updates via OTA after factory setup
-            
+            - Updates are available through Home Assistant or ESPHome
+
             ### Installation
             1. Flash `micimike-factory.bin` via USB
             2. Use BLE Improv to configure WiFi (touch center button to authorize)
-            3. Device auto-updates to full firmware
+            3. Add the device in Home Assistant
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

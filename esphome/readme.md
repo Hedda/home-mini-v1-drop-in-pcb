@@ -1,91 +1,73 @@
-# MiciMike Factory Firmware Structure
+# MiciMike ESPHome Firmware
 
-## Overview
+This directory contains the ESPHome firmware configuration for MiciMike.
 
-The factory firmware structure enables:
-1. Minimal factory firmware pre-installed at manufacturing
-2. Initial setup via BLE Improv for WiFi configuration
-3. Automatic upgrade to full firmware after WiFi connection
+## Files
 
-## File Structure
-
-```
+```text
 esphome/
-├── micimike-factory.yml          # Factory firmware (manufacturing)
-└── micimike-voice.yml            # Full firmware (your current config)
+|-- micimike-factory.yml  # Factory / first-install firmware
+|-- micimike-voice.yml    # Full voice assistant firmware
 ```
 
-## Factory Firmware (micimike-factory.yml)
+## Factory Firmware
 
-### Main Components:
+`micimike-factory.yml` follows the Home Assistant Voice Preview Edition factory pattern. It is not a tiny bootstrap-only image; it includes the full MiciMike voice assistant configuration and adds the first-install provisioning layer on top.
 
-1. **Package Import**: Loads the full firmware configuration
-   ```yaml
-   packages:
-     micimike_voice: !include micimike-voice.yml
-   ```
+The factory overlay provides:
 
-2. **BLE Improv Provisioning**: 
-   - Uses touch center button for authentication
-   - BLE connection for WiFi setup
-   
-3. **HTTP OTA Update**:
-   - Downloads manifest from GitHub releases
-   - Automatically updates to full firmware
+- BLE Improv provisioning
+- Serial Improv provisioning
+- Home Assistant discovery
+- Center-button authorization for BLE Improv
+- BLE disable after Wi-Fi connection, after a short delay so Improv can report success
+- HTTP update entity backed by the GitHub release manifest
+- Optional beta firmware update source switch
 
-4. **Beta Firmware Switch**:
-   - Enables beta version testing
-   - Switches manifest URL between production/beta
+The fallback Wi-Fi AP is present, but `captive_portal:` and `web_server:` are intentionally not enabled. ESPHome may warn about this during validation; that is expected for this provisioning model.
 
-## Key Differences from HA VPE:
+## BLE Improv Flow
 
-### 1. Center Button Authorizer
-HA VPE: `authorizer: center_button` (physical button)
-MiciMike: `authorizer: center_button` (touch button - ESP32-S3 GPIO3)
+1. Flash the factory firmware over USB.
+2. Home Assistant discovers the device via BLE Improv.
+3. Home Assistant asks for Wi-Fi credentials.
+4. Home Assistant asks for center-button authorization.
+5. The device connects to Wi-Fi and is added as an ESPHome device.
 
-The touch button works the same as physical:
-```yaml
-binary_sensor:
-  - platform: esp32_touch
-    id: center_button
-    threshold: 5000
-    pin: GPIO3
-```
+The center button is implemented through the MPR121 capacitive touch controller on channel 1.
 
-### 2. LED Control
-The factory firmware also supports the `control_leds` script:
-- During BLE provisioning: `improv_ble_in_progress = true`
-- During initialization: `init_in_progress = true`
-- After WiFi connection: normal LED operation
+## Home Assistant Takeover
 
-## Installation Process
+Factory firmware advertises the full `micimike-voice.yml` configuration through `dashboard_import` and enables full configuration import. After Home Assistant takes control, the generated ESPHome configuration should be the complete voice firmware config, not a short package wrapper pointing back to `micimike-factory.yml`.
 
-### 1. Flash Factory Firmware (USB)
+The imported configuration must not add a station Wi-Fi `ssid` or `password`. Wi-Fi credentials entered through BLE Improv are stored on the device and should be preserved across OTA updates. Adding `wifi_ssid` / `wifi_password` secrets to the adopted config will override the Improv-provisioned network on the next ESPHome build.
+
+If a device was adopted before this behavior was fixed, delete or manually repair the old short wrapper config in ESPHome before updating it again.
+
+## Flashing
+
+From the repository root:
+
 ```bash
-esphome run micimike-factory.yml
+esphome run esphome/micimike-factory.yml
 ```
 
-### 2. BLE Improv Provisioning
-- Device starts in AP mode
-- ESPHome app or Home Assistant discovers it
-- Touch center button for authentication
-- WiFi configuration
+To flash a known serial port:
 
-### 3. Automatic Update
-- 5 second delay after WiFi connection
-- BLE disable
-- HTTP OTA downloads manifest
-- Automatic update to full firmware
-- Reboot with full functionality
+```bash
+esphome run esphome/micimike-factory.yml --device COM8
+```
 
-## Manifest.json Structure
+## Release Manifest
 
-GitHub releases must contain a manifest.json:
+GitHub releases should provide `manifest.json`, `manifest-beta.json`, and the firmware binary referenced by the manifest.
+
+Example:
 
 ```json
 {
   "name": "MiciMike Voice Assistant",
-  "version": "v0.9.0",
+  "version": "v0.9.8.2",
   "builds": [
     {
       "chipFamily": "ESP32-S3",
@@ -101,28 +83,18 @@ GitHub releases must contain a manifest.json:
 }
 ```
 
-## GitHub Releases Structure
+Expected release assets:
 
+```text
+manifest.json
+manifest-beta.json
+micimike-voice.bin
 ```
-Releases/
-├── v0.9.0/
-│   ├── manifest.json           # Production manifest
-│   ├── manifest-beta.json      # Beta manifest
-│   └── micimike-voice.bin      # Full firmware binary
-```
-
-## Benefits
-
-1. **Simple Manufacturing**: Only factory firmware needs to be flashed
-2. **OTA Updates**: Users receive full version via WiFi
-3. **Beta Channel**: Optional beta firmware testing
-4. **No USB Dependency**: After initial flash, everything is OTA
-5. **Version Tracking**: GitHub releases-based version management
 
 ## Notes
 
-- Touch center button works as authentication just like physical button
-- All full configuration functionality is preserved
-- Factory firmware contains only bootstrap functions
-- LED control works in both versions
-- Future Firmware updates are not automatic. Users must manually check for new releases and update via ESPHome Dashboard.
+- The factory firmware mirrors the Home Assistant Voice PE provisioning behavior as closely as possible.
+- The factory firmware already contains the full voice assistant configuration through `micimike-voice.yml`.
+- Home Assistant takeover should import the full `micimike-voice.yml` config and preserve BLE Improv Wi-Fi credentials.
+- The HTTP update entity can check the GitHub release manifest, but installing an update still depends on the ESPHome/Home Assistant update flow.
+- Future firmware updates are not forced automatically; users can update through Home Assistant or ESPHome when a release is available.

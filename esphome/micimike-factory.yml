@@ -16,7 +16,7 @@ packages:
 esphome:
   project:
     name: imike78.MiciMike
-    version: factory
+    version: v0.9.8.2
 
 ota:
   - platform: http_request
@@ -28,11 +28,11 @@ update:
   - platform: http_request
     name: None
     id: update_http_request
-    source: https://github.com/iMike78/home-mini-DiP-v1/releases/latest/download/manifest.json
+    source: https://github.com/iMike78/home-mini-v1-drop-in-pcb/releases/latest/download/manifest.json
 
 dashboard_import:
-  package_import_url: github://iMike78/home-mini-DiP-v1/esphome/micimike-factory.yml@main
-  import_full_config: false
+  package_import_url: github://iMike78/home-mini-v1-drop-in-pcb/esphome/micimike-voice.yml@main
+  import_full_config: true
 
 wifi:
   on_connect:
@@ -46,7 +46,7 @@ esp32_ble:
   name: micimike
 
 esp32_improv:
-  authorizer: center_button  # Use touch center button for authentication
+  authorizer: center_button
   on_start:
     - lambda: id(improv_ble_in_progress) = true;
     - script.execute: control_leds
@@ -68,9 +68,9 @@ switch:
     restore_mode: RESTORE_DEFAULT_OFF
     on_turn_on:
       - logger.log: "OTA updates set to use Beta firmware"
-      - lambda: id(update_http_request).set_source_url("https://github.com/iMike78/home-mini-DiP-v1/releases/latest/download/manifest-beta.json");
+      - lambda: id(update_http_request).set_source_url("https://github.com/iMike78/home-mini-v1-drop-in-pcb/releases/latest/download/manifest-beta.json");
       - component.update: update_http_request
     on_turn_off:
       - logger.log: "OTA updates set to use Production firmware"
-      - lambda: id(update_http_request).set_source_url("https://github.com/iMike78/home-mini-DiP-v1/releases/latest/download/manifest.json");
+      - lambda: id(update_http_request).set_source_url("https://github.com/iMike78/home-mini-v1-drop-in-pcb/releases/latest/download/manifest.json");
       - component.update: update_http_request

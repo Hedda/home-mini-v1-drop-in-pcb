@@ -40,9 +40,9 @@ esphome:
   friendly_name: "${friendly_name}"
   project: 
     name: imike78.micimike
-    version: v0.9.3
+    version: v0.9.8.2
   name_add_mac_suffix: true
-  min_version: "2026.3"
+  min_version: "2026.7.0"
   on_boot:
     - priority: 375
       then:
@@ -58,9 +58,12 @@ esphome:
             then:
               - lambda: id(init_in_progress) = false;
               - script.execute: control_leds
+    - priority: -100
+      then:
+        - script.execute: configure_mpr121
 
 dashboard_import:
-  package_import_url: github://iMike78/home-mini-DiP-v1/esphome/micimike-voice.yml@main
+  package_import_url: github://iMike78/home-mini-v1-drop-in-pcb/esphome/micimike-voice.yml@main
   import_full_config: true
 
 esp32:
@@ -90,18 +93,17 @@ esp32:
 
 wifi:
   id: wifi_id
+  fast_connect: ${hidden_ssid}
   output_power: 8.5dB
+  ap:
+    ssid: "${name} Setup"
+    password: "12345678"
   power_save_mode: none
   reboot_timeout: 10min
-  ap:
-    ssid: "${friendly_name} Setup"
-    password: "12345678"
   on_connect:
     - script.execute: control_leds
   on_disconnect:
     - script.execute: control_leds
-
-captive_portal:
 
 api:
   id: api_id
@@ -110,6 +112,7 @@ api:
   on_client_disconnected:
     - script.execute: control_leds
   reboot_timeout: 10min
+  encryption:   # Uses key set by Home Assistant
 
 ota:
   - platform: esphome
@@ -128,6 +131,9 @@ i2c:
 i2c_device:
   - id: aic3204_raw
     address: 0x18
+    i2c_id: internal_i2c
+  - id: mpr121_raw
+    address: 0x5A
     i2c_id: internal_i2c
 
 psram:
@@ -295,7 +301,6 @@ mpr121:
   id: mpr121_component
   address: 0x5A
   i2c_id: internal_i2c
-  irq_pin: GPIO2
   touch_debounce: 1
   release_debounce: 1
   touch_threshold: 12
@@ -855,6 +860,11 @@ light:
               it[i] = color * uint8_t(255/brightness_step_number*(brightness_step_number-brightness_step));
             }
             if ( id(master_mute_switch).state ) {
+              it[0] = muted_color;
+              it[2] = muted_color;
+            }
+            if ( id(external_media_player).volume == 0.0f || id(external_media_player).is_muted() ) {
+              it[1] = muted_color;
               it[3] = muted_color;
             }
             if (brightness_decreasing) {
@@ -884,6 +894,11 @@ light:
               }
             }
             if (id(master_mute_switch).state) {
+              it[0] = muted_color;
+              it[2] = muted_color;
+            }
+            if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
+              it[1] = muted_color;
               it[3] = muted_color;
             }
             id(global_led_animation_index) = (4 + id(global_led_animation_index) - 1) % 4;
@@ -1368,6 +1383,40 @@ script:
                   switch.is_off: timer_ringing
                 then:
                   - micro_wake_word.disable_model: stop
+  - id: configure_mpr121
+    mode: restart
+    then:
+      - lambda: |-
+          static const char *const TAG = "mpr121_config";
+
+          bool ok = true;
+
+          // Stop mode.
+          ok &= id(mpr121_raw).write_byte(0x5E, 0x00);
+
+          // Falling baseline tracking.
+          ok &= id(mpr121_raw).write_byte(0x2F, 0x01);  // MHDF
+          ok &= id(mpr121_raw).write_byte(0x30, 0x01);  // NHDF
+          ok &= id(mpr121_raw).write_byte(0x31, 0xFF);  // NCLF
+          ok &= id(mpr121_raw).write_byte(0x32, 0x00);  // FDLF
+
+          // AFE working point.
+          ok &= id(mpr121_raw).write_byte(0x5C, 0x28);  // CDC = 40 uA
+          ok &= id(mpr121_raw).write_byte(0x5D, 0x20);  // CDT = 0.5 us
+
+          // CL=2, ELE0-ELE2 enabled.
+          ok &= id(mpr121_raw).write_byte(0x5E, 0x83);
+
+          if (!ok) {
+            ESP_LOGE(TAG, "MPR121 configuration failed");
+            return;
+          }
+
+          ESP_LOGI(
+            TAG,
+            "MPR121 configured: MHDF=1 NHDF=1 NCLF=255 FDLF=0, "
+            "CDC=40uA CDT=0.5us ECR=0x83"
+          );
 
 i2s_audio:
   - id: i2s_output
@@ -1416,6 +1465,7 @@ speaker:
     id: mixing_speaker
     output_speaker: i2s_audio_speaker
     num_channels: 2
+    task_stack_in_psram: true
     source_speakers:
       - id: announcement_mixing_input
         timeout: never
@@ -1476,10 +1526,10 @@ audio_file:
 media_source:
   - platform: audio_file
     id: audio_file_announcement_source
-  - platform: http_request
+  - platform: audio_http
     id: http_announcement_source
     buffer_size: 250000
-  - platform: http_request
+  - platform: audio_http
     id: http_media_source
     buffer_size: 500000
   - platform: sendspin
@@ -1550,19 +1600,6 @@ external_components:
     components:
       - voice_kit
     refresh: 0s
-  - source:
-      # https://github.com/esphome/esphome/pull/14933
-      type: git
-      url: https://github.com/kahrendt/esphome
-      ref: 7a6cf5c8472b7e2fa18ee0fc314f66a80d249e32
-    components: [const, media_source, sendspin]
-  - source:
-      # https://github.com/esphome/esphome/pull/12429
-      type: git
-      url: https://github.com/esphome/esphome
-      ref: ff8ce89556748509d7ee8724e12d9d43d3c8c1e8
-    refresh: 0s
-    components: [http_request]
 
 audio_dac:
   - platform: aic3204
@@ -1653,17 +1690,14 @@ select:
           id(okay_nabu).set_probability_cutoff(217);    // 0.85 -> 0.000 FAPH on DipCo (Manifest's default)
           id(hey_jarvis).set_probability_cutoff(247);   // 0.97 -> 0.563 FAPH on DipCo (Manifest's default)
           id(hey_mycroft).set_probability_cutoff(253);  // 0.99 -> 0.567 FAPH on DipCo
-#          id(alexa).set_probability_cutoff(217);
         } else if (x == "Moderately sensitive") {
           id(okay_nabu).set_probability_cutoff(176);    // 0.69 -> 0.376 FAPH on DipCo
           id(hey_jarvis).set_probability_cutoff(235);   // 0.92 -> 0.939 FAPH on DipCo
           id(hey_mycroft).set_probability_cutoff(242);  // 0.95 -> 1.502 FAPH on DipCo (Manifest's default)
-#          id(alexa).set_probability_cutoff(176);
         } else if (x == "Very sensitive") {
           id(okay_nabu).set_probability_cutoff(143);    // 0.56 -> 0.751 FAPH on DipCo
           id(hey_jarvis).set_probability_cutoff(24);   // 0.83 -> 1.502 FAPH on DipCo
           id(hey_mycroft).set_probability_cutoff(237);  // 0.93 -> 1.878 FAPH on DipCo
-#          id(alexa).set_probability_cutoff(143);
         }
 
   - platform: template
@@ -2104,8 +2138,10 @@ select:
 voice_assistant:
   id: va
   microphone:
-    microphone: i2s_mics
-    channels: 0
+    - microphone: i2s_mics
+      channels: 0
+    - microphone: i2s_mics
+      channels: 1
   media_player: external_media_player
   micro_wake_word: mww
   use_wake_word: false
